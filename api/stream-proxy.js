@@ -1,14 +1,10 @@
 // api/stream-proxy.js
-// La función Serverless que Vercel ejecutará.
-
-// Vercel soporta 'node-fetch', así que lo requerimos para compatibilidad.
 const fetch = require('node-fetch');
 
-// URL base del stream
 const URL_BASE = 'https://dlhd.dad/stream/'; 
 
 module.exports = async (req, res) => {
-    // Manejar la petición de pre-vuelo (OPTIONS) que puede enviar el navegador (CORS)
+    // Manejo de pre-vuelo OPTIONS
     if (req.method === 'OPTIONS') {
         res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
@@ -18,14 +14,12 @@ module.exports = async (req, res) => {
         return res.end();
     }
 
-    // Solo permitir peticiones GET
     if (req.method !== 'GET') {
         res.writeHead(405, { 'Content-Type': 'text/plain' });
         return res.end('Method Not Allowed');
     }
 
     try {
-        // 1. Obtener el ID del stream de la URL (ej: /api/stream-proxy?id=445)
         const url = new URL(req.url, `http://${req.headers.host}`);
         const streamId = url.searchParams.get('id');
 
@@ -34,37 +28,46 @@ module.exports = async (req, res) => {
             return res.end('Error: Missing stream ID parameter.');
         }
 
-        // 2. Construir la URL completa del stream externo
         const targetUrl = `${URL_BASE}stream-${streamId}.php?disableads=1&no-reload=1&autoplay=1`;
 
-        // 3. Petición de servidor a servidor (omite CORS y Referer)
+        // Petición al servidor de streams
         const response = await fetch(targetUrl, {
             method: 'GET',
             headers: {
-                // Simular un Referer para evitar Hotlink Protection si es necesario
-                'Referer': URL_BASE, 
-                'User-Agent': 'Vercel Serverless Proxy (Node.js)'
+                // Simular el Referer para engañar la protección Hotlink
+                'Referer': 'https://dlhd.dad/', 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Vercel Proxy/1.0',
             },
         });
 
-        // 4. Configurar cabeceras de respuesta (CORS obligatorio)
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        res.setHeader('Content-Type', response.headers.get('content-type') || 'application/octet-stream');
-        
-        // Evitar que el servidor externo fuerce la seguridad de incrustación
-        res.removeHeader('X-Frame-Options');
-        res.removeHeader('Content-Security-Policy');
-
-        // 5. Reenviar el estado de la respuesta externa
+        // 1. Configurar Cabeceras de Vercel
+        // Reenviar status code
         res.statusCode = response.status;
         
-        // 6. Transmitir el cuerpo del stream directamente
+        // Configurar CORS
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        
+        // 2. Filtrar Cabeceras de Seguridad del Servidor Externo
+        const headers = Object.fromEntries(response.headers.entries());
+        
+        // Eliminar cabeceras que prohíben la incrustación (iFrame)
+        delete headers['x-frame-options'];
+        delete headers['content-security-policy'];
+        
+        // Forzar el Content-Type para evitar problemas
+        headers['content-type'] = 'text/html'; // Forzamos que lo trate como HTML
+
+        // Aplicar todas las cabeceras filtradas
+        for (const [key, value] of Object.entries(headers)) {
+            res.setHeader(key, value);
+        }
+        
+        // 3. Transmitir el cuerpo del stream
         response.body.pipe(res);
 
     } catch (error) {
-        // Si hay un fallo de red o un error en el código
-        console.error('SERVERLESS CRASH:', error.message);
+        console.error('SERVERLESS ERROR:', error.message);
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end(`Proxy Failed: ${error.message}`);
     }
