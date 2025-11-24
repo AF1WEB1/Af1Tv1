@@ -1,1 +1,12 @@
-
+{
+  "rewrites": [
+    {
+      "source": "/api/stream-proxy",
+      "destination": "/api/stream-proxy.js"
+    },
+    {
+      "source": "/api/stream-proxy/(.*)",
+      "destination": "/api/stream-proxy.js"
+    }
+  ]
+}
